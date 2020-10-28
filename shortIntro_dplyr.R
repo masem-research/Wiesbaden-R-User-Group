@@ -2,6 +2,8 @@
 
 ## References: Package vignettes recommended!
 # dplyr <-> base R: https://cran.r-project.org/web/packages/dplyr/vignettes/base.html
+# Package by Hadley Wickham et al. - Thank you very much!
+ 
 
 ## Idea of dplyr: Provides "verbs": funtions that correspond to typical data manipulation tasks
 

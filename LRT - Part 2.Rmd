@@ -1,0 +1,240 @@
+---
+title: "R Coffee Break - Modellvergleich mittels Likelihood Ratio Test (LRT) - Teil 2"
+author: "Dr. Guido Möser, masem"
+date: "3 2 2021"
+output: learnr::tutorial
+runtime: shiny_prerendered
+description: "WRUG - LRT - Teil 2"
+---
+
+```{r setup, include=FALSE}
+library(learnr)
+library(sortable)
+```
+     
+# Modellvergleiche mittels Likelihood Ratio Tests
+  
+  
+## Recommended Packages  
+  
+`aod`: Analysis of Overdispersed Data provides function to calculate contrasts
+  
+  
+```{r}
+if (!require(aod)) install.packages("aod")
+library(aod)
+```
+  
+  
+## Data IO
+  
+Data and ressources provided by UCLA: Admission into graduate school
+  
+- `gre`: graduate record exam scores 
+- `gpa`: grade point average
+- `rank`: prestige of the undergraduate institution
+- `admit`: [response variable], {admit/don’t admit}, binary variable  
+  
+  
+Get the data:
+```{r}
+# Get the data: https://stats.idre.ucla.edu/r/dae/logit-regression/
+binary <- read.csv("X:/cloud/masem_gmoeser/MASEM_AUSTAUSCH/OeffentlichkeitsArbeit/R User Gruppe/WRUG - LRT/binary.csv")
+```
+  
+  
+Inspect the data:  
+```{r}
+# Inspect the data
+head(binary)
+str(binary)
+```
+  
+  
+  
+## Encoding categorical features
+  
+Machine learning models work best with numeric features rather than text values, so you generally need to convert categorical features into numeric representations. For example, suppose your data includes the following categorical feature. 
+  
+  
+
+```{r echo=FALSE}
+knitr::kable(data.frame(rank = c("A","B","C","D")), 
+             format = "html", 
+             table.attr = "style='width:30%;'", 
+             align = "c")
+```
+   
+   
+   
+  
+You can apply ordinal encoding to substitute a unique integer value for each category, like this:
+   
+   
+```{r echo = FALSE}
+knitr::kable(data.frame(rank = c("0","1","2","3")), 
+             format = "html", 
+             table.attr = "style='width:30%;'",
+             align = "c")
+```
+  
+    
+    
+```{r integer, echo=FALSE}
+question("Adding this integer representation of an unordered categorical variable into your lm() model is a good or bad idea?",
+  answer("good idea"),
+  answer("bad idea", correct = TRUE)
+  )
+```
+  
+    
+    
+Another common technique is to use dummy coding (aka "one hot encoding") to create individual binary (0 or 1) features for each possible category value. For example, you could use dummy encoding to translate the possible categories into binary columns like this:
+    
+```{r echo = FALSE}
+knitr::kable(data.frame(rank_A = c(1,0,0,0), rank_B = c(0,1,0,0), rank_C = c(0,0,1,0), rank_D = c(0,0,0,1)), 
+             format = "html", 
+             table.attr = "style='width:30%;'", 
+             align = "c")
+```
+   
+   
+```{r alldummyvariables, echo=FALSE}
+question("It is necessary to add all dummy variables in your lm() model!",
+  answer("working"),
+  answer("maybe not working :-) and not necessary", correct = TRUE)
+  )
+```  
+  
+  
+Another option is to use `factor` function: R provides a S3 class called `factor`, which is a convenient way to handle categorical variables:  
+- `factor`: categorical unordered variable
+- `ordered`: categorical ordered variable  
+  
+Please note: If a factor (or ordered) variable will be incorporated into a, e.g., `lm` model, `lm` function will do the dummy coding.   
+  
+  
+Convert rank to a factor to indicate that rank should be treated as a categorical (here unordered):
+```{r}
+binary$rank <- factor(binary$rank)
+```
+  
+  
+  
+**Exercise: Transform into an ordered one!** 
+  
+```{r ordered, exercise=TRUE}
+binary$rank <- ordered(binary$rank)
+```
+
+  
+  
+## LRT: Comparison of two logit-models 
+  
+  
+**First Model:**
+  
+```{r}
+LogitModel1 <- glm(formula = admit ~ gre + gpa, data = binary, family = "binomial")
+summary(LogitModel1)
+```
+  
+  
+**Second Model:**
+  
+```{r}
+LogitModel2 <- glm(formula = admit ~ gre + gpa + rank, data = binary, family = "binomial")
+summary(LogitModel2)
+```
+ 
+ 
+  
+**Interpretation of Coefficients:**  
+   
+   
+- For every one unit change in `gre`, the log odds of `admission` (versus `non-admission`) increases by 0.002.
+- For a one unit increase in `gpa`, the log odds of being admitted to graduate school increases by 0.804.  
+   
+   
+```{r interpretationdummies, echo=FALSE}
+question("Which one is correct?: ",
+  answer("having attended an undergraduate institution with `rank` of 2 changes the log odds of `admission` by -0.675"),
+  answer("having attended an undergraduate institution with `rank` of 2, versus an institution with a `rank` of 1, changes the log odds of `admission` by -0.675", correct = TRUE)
+  )
+```  
+  
+
+
+Please note: The indicator variables for `rank` have a slightly different interpretation! 
+  
+  
+**Compare both models:**  
+Made it sense to incorporate ordinal scaled rank variable in model?  
+  
+```{r}
+# Compare both models using stats::anova()-function:
+ModelComparison1and2 <- stats::anova(LogitModel1, LogitModel2)
+# results:
+ModelComparison1and2
+# p-value:
+pchisq(ModelComparison1and2$Deviance[2], ModelComparison1and2$Df[2], lower.tail = FALSE)
+```
+  
+  
+## Overall effect of rank using the `wald.test` function in package `aod`
+  
+```{r}
+aod::wald.test(b = coef(LogitModel2), Sigma = vcov(LogitModel2), Terms = 4:6)
+```
+  
+The chi-squared test statistic of 20.9, with three degrees of freedom is associated with a p-value of 0.00011 indicating that the overall effect of rank is statistically significant.
+    
+  
+## Hypotheses about the differences in the coefficients for the different levels of rank
+  
+Test that the coefficient for rank=2 is equal to the coefficient for rank=3. 
+  
+How to set this up:  
+
+- Creates a contrasts-vector `cont` that defines the test we want to perform. 
+- Here, we want to test the `difference (subtraction)` of the terms for `rank = 2` and `rank = 3` (i.e., the 4th and 5th terms in the model). 
+- To contrast these two terms, we multiply one of them by 1, and the other by -1. 
+- The other terms in the model are not involved in the test, so they are multiplied by 0. 
+- The second line of code below uses `L = cont` to tell R that we wish to base the test on the vector `cont` (rather than using the Terms option used above).
+  
+**Define the contrast:**  
+```{r}
+cont <- cbind(0, 0, 0, 1, -1, 0)
+```
+  
+  
+**Run the hypotheses test:**  
+```{r}
+aod::wald.test(b = coef(LogitModel2), Sigma = vcov(LogitModel2), L = cont)
+```
+  
+**Interpretation:**  
+The chi-squared test statistic of 5.5 with 1 degree of freedom is associated with a p-value of 0.019, indicating that the difference between the coefficient for rank=2 and the coefficient for rank=3 is statistically significant.  
+  
+  
+**Exercise: Is second rank different compared to rank 3 and 4?**  
+Please define the contrast!  
+   
+   
+
+```{r logit2, exercise = TRUE}
+##Define the contrast:
+cont2 <- cbind(0, 0, 0, 0, 0, 0)
+##Run the hypotheses test:
+aod::wald.test(b = coef(LogitModel2), Sigma = vcov(LogitModel2), L = cont2)
+```
+  
+
+
+
+
+  
+
+
+
+

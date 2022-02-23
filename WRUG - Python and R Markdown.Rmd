@@ -1,0 +1,281 @@
+---
+title: 'WRUG: R and Python in R Markdown'
+author: "MG"
+date: "18 2 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Using Python in R Kernels with Reticulate
+
+## What is reticulate?
+
+-   `reticulate` is an interface to 'Python' modules, classes and function.
+-   Compatible with all versions of 'Python' >= 2.7.
+
+### How it works
+
+**Very simple \> by converting data from R to Python and vice-versa!**
+
+-   When calling into 'Python', R data types are automatically converted to their equivalent 'Python' types.
+-   When values are returned from 'Python' to R they are converted back to R types.
+
+### Four ways to interact with python using this package:
+
+1.  **Python in R Markdown**: Supports communication between R and Python (R chunks can access Python objects and vice-versa).
+2.  **Importing Python modules**: The `import()` function enables you to import any Python module and call its functions directly from R.
+3.  **Sourcing Python scripts**: The `source_python()` function enables you to source a Python script the same way you would `source()` an R script (Python functions and objects defined within the script become directly available to the R session).
+4.  **Python interactive session**: The `repl_python()` function creates an interactive Python console within R. Objects you create within Python are available to your R session (and vice versa).
+
+### Reticulate documentation and some helpful ressources:
+
+-   CRAN: <https://cran.r-project.org/web/packages/reticulate/index.html>
+-   https://rstudio.github.io/reticulate/
+-   https://rstudio-pubs-static.s3.amazonaws.com/397064_bd288708515c4b71a6e78dfe91b8bb99.html
+
+**Vignetten**
+
+-   Arrays in R and Python
+-   Calling Python from R
+-   Using reticulate in an R Package
+-   Managing an R Package's Python Dependencies
+-   Installing Python Packages
+-   **Primer on Python for R Users**
+-   **R Markdown Python Engine**
+-   Python Version Configuration
+
+## R and Python in R Markdown
+
+### Paket `reticulate` laden
+
+```{r package}
+if (!require(reticulate)) {
+  install.packages("reticulate")
+  library(reticulate)} else {
+    library(reticulate)}
+```
+    
+    
+**Hinweise:**
+- Eine spezifische Python Installation kann mit `use_python("/usr/local/bin/python")` gesetzt werden. 
+- Virtuelle Environments können genutzt werden mit `use_virtualenv("myenv")`
+   
+   
+#### Check Python version
+
+Check the Python version:
+
+```{r}
+py_discover_config()
+```
+
+
+
+## R Markdown: Python Integration - First Option: Use R and Python chunks
+
+### Add an R Chunk
+
+First, load a built-in data.frame from R: cars
+
+```{r}
+# copy the classical cars dataset (speed and distance) into autos
+autos <- cars
+
+# print first six rows
+head(cars)
+```
+
+### Add a Python Chunk
+
+-   Access R objects through letter `r`:
+-   Pandas provides `data.frame` equivalent structures in Python: `DataFrame`
+-   R `data.frame` converted into Pandas `DataFrame`.
+
+```{python}
+# pandas
+import pandas
+# class of r.autos-object:
+type(r.autos)
+```
+pandas head()-function
+
+```{python}
+r.autos.head()
+```
+
+
+**Generate a new variable in Python chunk: `time` using Python syntax**
+
+```{python}
+# Python
+import pandas
+autos_py = r.autos
+autos_py['time'] = autos_py['dist']/autos_py['speed']
+```
+
+### Back in R...
+
+-   Access the object created within a Python chunk from R using object `py`: `py$autos_py`
+-   Pandas `DataFrame` converted into R `data.frame`
+
+```{r}
+# First few rows
+head(py$autos_py)
+```
+
+Object class:
+
+```{r}
+# Object class
+class(py$autos_py)
+```
+
+**Generate a SPLOM**
+
+```{r}
+plot(~ speed + dist + time, data = py$autos_py, pch = 21, col = "tomato", upper.panel = NULL, panel = panel.smooth)
+```
+
+   
+   
+## Another Example: pandas and ggplot2
+
+R chunk
+```{r}
+data("flights", package = "nycflights13")
+```
+
+
+Python chunk:
+```{python}
+import pandas
+flights = r.flights
+flights = flights[flights['dest'] == 'ORD']
+flights = flights[['carrier', 'dep_delay', 'arr_delay']]
+flights = flights.dropna()
+```
+
+R chunk:
+```{r}
+library(ggplot2)
+ggplot(py$flights, aes(carrier, arr_delay)) + geom_point() + geom_jitter()
+```
+
+   
+
+## R Markdown: Python Integration - Second Option: Import a Python Module
+
+Here, Python chunks are not necessary. A Python module will be imported in R. In background, the reticulate converts the data.frames into DataFrames.
+
+![Reticulate Transformations](Python%20R%20Conversion.PNG)
+
+**Task: Import Pandas in R, import a dataset from web and use the pandas `describe` function:**
+
+Please note: Use `convert=FALSE`, otherwise converts Python in equivalent R structures.
+
+```{r}
+library(reticulate)
+# Import pandas in R
+pandas <- reticulate::import("pandas", convert = FALSE)
+```
+
+Use `describe()` function from Pandas
+
+```{r}
+# Import a dataset from Web
+titanic = pandas$read_csv("https://goo.gl/4Gqsnz")
+# Run pandas describe function
+description <- titanic$describe()
+description
+```
+   
+   
+
+### Jump between objects in Python and R: Transformations
+
+**Conversions between Python and R:**   
+
+Reticulate automatically converts equivilent data strucutres between R and Python objects, so we can pass R objects (like a matrix) to a Python function as a Python object (like an array).
+   
+   
+### Reticualte allows us to transform a python object to an R object and vice versa using `py_to_r()` and `r_to_py`:**
+
+```{r}
+description_r = py_to_r(description)
+description_py = r_to_py(description_r)
+```
+
+
+### Another Example of automatic transformation: Multiplication of two matrices
+
+```{r}
+# create two R matrixes
+matrix1 <- matrix(data = 1:25, nrow = 5, ncol = 5)
+matrix2 <- matrix(data = 25:1, nrow = 5, ncol = 5)
+
+# multiply these matrixes as numpy arrays
+matrix3 <- np$matmul(matrix1, matrix2)
+
+# the resulting object is an R matrix
+class(matrix3)
+
+# and looks like you'd expect
+print(matrix3)
+```
+
+
+
+
+
+## More about Python Modules
+
+-   Import a Python function to use it
+-   Please note: that includes built-in function! <https://docs.python.org/3/library/functions.html>
+
+### Python built-in functions
+
+```{r ImportBuiltIns}
+# Import built-in functions
+PythonBuiltIns <- import_builtins()
+```
+
+Built-in functions can then be used by calling the R object name followed by the assignment operator `$` and the Python function name:
+
+```{r}
+# Python built-in function len: get the length of a string
+PythonBuiltIns$len('Wiesbaden R User Group')
+```
+
+### Import another Python Module
+
+Of certain interest in Data Science is the SciKit-Stack, which consists of the packes:\
+- SciPy - NumPy - Pandas - Matplotlib - scikit-learn - ...
+
+```{r}
+# import numpy
+np <- import("numpy")
+```
+
+### Install a Python module
+
+Either install a Python module in your environment, e.g. use `pip install` or use R
+
+```{r}
+# Uncomment before use
+#reticulate::py_install("pandas")
+```
+
+**Please note:** After installing a package, please restart the R session!
+
+
+## Python REPL
+
+```{r}
+# Don't run this here! Run this in a normal R console!
+#repl_python()
+```
+
+

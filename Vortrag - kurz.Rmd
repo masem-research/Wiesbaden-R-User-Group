@@ -1,0 +1,81 @@
+---
+title: "reticulate"
+author: "MG"
+date: "23 2 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Paket Management
+
+```{r}
+library(reticulate)
+```
+
+## Welches Python?
+
+```{r}
+py_discover_config()
+```
+
+
+## Python <> R Interaktion
+
+R Chunk
+```{r}
+# cars Datensatz nutzen
+auto <- cars
+head(auto)
+```
+
+Python Chunk
+```{python}
+# pandas
+import pandas
+# Wie komme ich an meinen data.frame
+r.auto.head()
+```
+
+In welchem Format liegt der data.frame in Python vor? >> DataFrame
+```{python}
+type(r.auto)
+```
+In Python eine neue Variable erzeugen
+```{python}
+autos_py = r.auto
+autos_py['time'] = autos_py['dist'] / autos_py['speed']
+```
+
+Meanwhile back in R...
+```{r}
+# Head
+head(py$autos_py)
+```
+```{r}
+class(py$autos_py)
+```
+```{r}
+# SPLOM
+plot(~ speed + dist + time, data = py$autos_py, pch = 21, col = "tomato", upper.panel = NULL, panel = panel.smooth)
+```
+
+
+# Option 2: Direkt in R
+
+```{r}
+pandas <- reticulate::import("pandas", convert = FALSE)
+```
+
+```{r}
+titanic <- pandas$read_csv("https://goo.gl/4Gqsnz")
+```
+
+```{r}
+class(titanic)
+```
+
+
+

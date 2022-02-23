@@ -1,0 +1,52 @@
+---
+title: "Using Python in R Kernels with Reticulate"
+author: "MG"
+date: "23 2 2022"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## What is reticulate?
+
+-   `reticulate` is an interface to 'Python' modules, classes and function.
+-   Compatible with all versions of 'Python' >= 2.7.
+
+## How it works
+
+**Very simple \> by converting data from R to Python and vice-versa!**
+
+-   When calling into 'Python', R data types are automatically converted to their equivalent 'Python' types.
+-   When values are returned from 'Python' to R they are converted back to R types.
+
+
+## Four ways to interact with python using this package:
+
+1.  **Python in R Markdown**: Supports communication between R and Python (R chunks can access Python objects and vice-versa).
+2.  **Importing Python modules**: The `import()` function enables you to import any Python module and call its functions directly from R.
+3.  **Sourcing Python scripts**: The `source_python()` function enables you to source a Python script the same way you would `source()` an R script (Python functions and objects defined within the script become directly available to the R session).
+4.  **Python interactive session**: The `repl_python()` function creates an interactive Python console within R. Objects you create within Python are available to your R session (and vice versa).
+
+
+
+
+## Reticulate documentation and some helpful ressources:
+
+-   CRAN: <https://cran.r-project.org/web/packages/reticulate/index.html>
+-   https://rstudio.github.io/reticulate/
+-   https://rstudio-pubs-static.s3.amazonaws.com/397064_bd288708515c4b71a6e78dfe91b8bb99.html
+
+
+
+## Vignetten
+
+-   Arrays in R and Python
+-   Calling Python from R
+-   Using reticulate in an R Package
+-   Managing an R Package's Python Dependencies
+-   Installing Python Packages
+-   **Primer on Python for R Users**
+-   **R Markdown Python Engine**
+-   Python Version Configuration

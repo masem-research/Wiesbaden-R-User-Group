@@ -1,0 +1,620 @@
+---
+title: 'tidymodels: Hyperparameter Tuning with mlr3 and Tidymodels'
+output: html_document
+date: "2023-04-16"
+author: Guido
+editor_options: 
+  chunk_output_type: console
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+   
+   
+# Typical (but incomplete) Topics in Machine Learning 
+
+- Which algos --> `mlr3tuningspaces`: sets of different algos with predefined hyperparameters
+- Hyperparameter: optimales Set --> Hyperparameter Tuning
+- Geschwindigkeit, gerade bei Hyperparameter Tuning 
+- --> Early Stopping Policies, `terminator`
+- Monitoring during optimization process
+- Memory management --> `store_models = FALSE` --> rerun with identified hyperparameters
+- CPU Usage, Architecture 
+- Select a final model and store trained models
+- Deployment
+- Pipelines --> Intergrate the whole / parts of the process incl. preprocessing
+   
+      
+
+# Packages
+
+**mlr3**: Overview: https://mlr3.mlr-org.com/   
+Please note: Fastest way is to install `mlr3verse`. It will install (almost) all available packages   
+**tidymodels**: Overview: https://www.tidymodels.org/packages/
+
+   
+```{r packagesHT}
+# packages Hyperparameter-Tuning
+library(mlr3verse)    # load this package to get almost everything  
+library(tidymodels)   # load this package to get almost everything   
+library(paradox)      # to_tune() 
+library(fastDummies)  # Dummy coding
+```
+
+
+
+# Data
+  
+Data prepared by Oliver  
+  
+```{r}
+data_url <- "https://raw.githubusercontent.com/staehlo/mlr3_and_tidymodels/main/example_data_set.csv"
+loans <- read.csv2(file = data_url, header = TRUE, sep = ",", dec=".")
+str(loans)
+```
+  
+   
+# Data Preparation 
+
+Please note: in mlr3 in hyperparameter tuning, factors are currently not supported!
+  
+```{r}
+# Dummy coding
+#  1st dummy is contrast
+loans <- fastDummies::dummy_cols(.data = loans, select_columns = c("home_ownership", "purpose"), remove_first_dummy = TRUE)
+head(loans)
+
+# factors are only weakly supported in mlr3
+#loans$home_ownership <- as.factor(loans$home_ownership)
+#loans$purpose <- as.factor(loans$purpose)
+
+# convert grade to numeric:
+loans$numeric_grade <- match(loans$grade, LETTERS)
+str(loans)
+```
+   
+   
+   
+# Regression: Hyperparameter Tuning using mlr3 and Tidymodels to identify the best model set
+   
+- `loans` dataset (dim: 39786 x 7)
+- Target variable is `int_rate`
+- Target variable is measurement level `scale`
+   
+    
+# Core Question Today: How to find the optimal set of hyperparameter?   
+  
+
+# Hyperparameter Tuning with `mlr3`
+
+Developed by Michel Lang et al., very vital and experienced team; 
+- mlr3 is OOP-based --> `R6`; 
+- mlr universe developed along several packages (see below)   
+  
+**Core:** `mlr3tuning` package --> https://mlr3tuning.mlr-org.com/
+   
+- Package `bbotk` --> Black Box Optimization Toolkit
+- Package `paradox` --> Define and Work with Parameter Spaces for Complex Algorithms
+   
+**Book-Chapter:** https://mlr3book.mlr-org.com/optimization.html 
+
+**mlr3 Cheat Sheet:** `mlr3 Hyperparameter Tuning Cheat Sheet:` https://cheatsheets.mlr-org.com/mlr3tuning.pdf 
+
+    
+
+**Build-in Learners**
+  
+```{r}
+# available learner in class learners
+mlr_learners
+```
+
+  
+ 
+# Hyperparameter Tuning with `Tidymodels`  
+  
+Formerly known as `caret` package. 
+Supports the `tidyverse` 
+   
+   
+
+
+## mlr3: Prevent Overfitting
+
+With mlr3, we can use `rsmp()` to specify a classical hold-out approach or - more convient - use a resampling strategy
+during the tuning process, typically a cross-validation approach. 
+   
+To perform a classical hold-out approach, in other word, to split the data into a `training` and a `test` set, simply 
+use the `sample()` function provided by base-R:  
+  
+```{r}
+# Get the number of cases
+NumberOfCases <- nrow(loans)
+# sample: generate a set of train IDs
+TrainIDs <- base::sample(x = 1:NumberOfCases, size = NumberOfCases * 0.8, replace = FALSE)
+length(TrainIDs)
+# Split the data
+loansTrain <- loans[TrainIDs,]
+loansTest <- loans[-TrainIDs,] # select cases by a negative integer
+```
+
+Both data.frames, `loansTrain` and `loansTest` can now be used in `mlr3`.   
+
+
+
+## Tidymodels: Prevent Overfitting
+
+`Tidymodels` provides the functions `initial_split`, `training()` and `testing()` to perform the task.
+
+```{r}
+set.seed(123)
+loans_split <- initial_split(loans %>% select(-grade, -purpose, -home_ownership))
+loans_train <- training(loans_split)
+loans_test  <- testing(loans_split)
+head(loans_train)
+```
+   
+
+# Predicting using Decision Tree Models
+
+**Explore which** decision tree hyperparameter can be tuned.   
+
+- Explore the reference docs or 
+- Use the `base::args()` function to see which parsnip object arguments are available and 
+  the `parsnip::decision_tree` function (Tidymodels)
+  
+```{r}
+# tidymodels: parsnip() with args()
+base::args(parsnip::decision_tree)
+```
+   
+   
+Three **Hyperparameters**:   
+
+- the `complexity parameter` (which we call cost_complexity in tidymodels) for the tree, and
+- the `maximum tree_depth` parameter
+- the `min_n` parameter
+   
+**`cost_complexity`:**   
+Tuning the value of `cost_complexity` helps by pruning back our tree: It adds a cost, or penalty, to error rates of 
+more complex trees; a cost closer to zero decreases the number tree nodes pruned and is more likely to result in an 
+overfit tree. However, a high cost increases the number of tree nodes pruned and can result in the opposite 
+problem — an underfit tree. 
+   
+**`tree_depth`:**   
+Tuning `tree_depth`, on the other hand, helps by stopping our tree from growing after it reaches a certain depth. 
+  
+**`min_n`:**
+Number of cases in a node.  
+   
+   
+## Explore Model Arguments  
+  
+Link: https://www.tidymodels.org/find/parsnip/#model-args
+   
+   
+  
+# mlr3: Specify a learner  
+  
+```{r classif.svm}
+# Fast, but no hyperparameter tuning...
+learner <- lrn("regr.rpart")
+learner
+```
+   
+   
+Available Hyperparameter:
+```{r}
+learner$param_set$ids()
+```
+
+**Metadata** of a learner:
+- `$feature_types`: the type of features the learner can handle.
+- `$packages`: the packages required to be installed to use the learner.
+- `$properties`: special properties the model can handle, for example the “missings” properties means a model can handle missing data, and “importance” means it can compute the relative importance of each feature.
+- `$predict_types`: the types of prediction that the model can make 
+- `$param_set`: the set of available hyperparameters
+
+  
+**Setting up range of hyperparameters for: `cp` and `maxdepth`** 
+  
+Please note: Use `learner$param_set` to get information to set up more hyperparameters   
+    
+```{r}
+# with hyperparameter tuning
+learner <- mlr3::lrn("regr.rpart",
+                    cp       = paradox::to_tune(0.001,  1, logscale = FALSE),
+                    maxdepth = paradox::to_tune(1.   , 10, logscale = FALSE)
+                    #, # max up to 30
+                    #minsplit = paradox::to_tune(1    , 30, logscale = FALSE)
+                    )
+# print hyperparameters with tuning information
+learner$param_set
+```
+ 
+One can use `learner$param_set$set_values()` to change a learners configuration.   
+  
+  
+ 
+# Tidymodels: Specify a learner
+   
+Tuning will be conducted using the `tune()` functions instead of setting concrete parameters. `tune()` acts like a 
+placeholder. 
+  
+
+```{r}
+tune_spec <- 
+    decision_tree(
+      tree_depth = tune(), 
+      cost_complexity = tune()) %>% 
+  # This model can be used for classification or regression, so set mode
+  set_mode("regression") %>% 
+  set_engine("rpart")
+tune_spec
+```
+
+
+
+
+# mlr3: Specify a Task
+
+```{r}
+# set up a task
+#task <- TaskClassif$new(id = "lendingClub", loans, target = "term")
+task <- as_task_regr(loans_train, target = "int_rate")
+# some attributes etc.
+task$nrow
+task$ncol
+task$feature_names
+task$formula()
+# de-select "grade" - will used the numerical one
+task$select(setdiff(task$feature_names, c("grade", "purpose", "home_ownership")))
+```
+  
+  
+# mlr3: Resampling
+
+Web: https://mlr3book.mlr-org.com/performance.html#sec-resampling
+
+```{r}
+# features and targets - any partition roles? --> stratum
+task$col_roles
+# set stratum with respect to target variable: int_rates
+#task$col_roles$stratum <- "int_rate"
+#task$strata
+```
+   
+   
+*Classical* **Holdout Resampling** (later combined with cross validation)
+   
+Steps:
+- Construction: defines how the data spliiting process will be performed when running the resampling strategy: it does
+ not yet contain a concrete set of train-test splits
+ - Instantiation: Generate the train-test splits
+   
+```{r mlr3ClassicalHoldOutSampling}
+# Construction
+resampling <- rsmp("holdout", ratio = 0.7)
+print(resampling)
+# Change to .75
+resampling$param_set$values <- list(ratio = 0.75)
+resampling$param_set$values
+
+# Instantiation
+resampling$instantiate(task)
+train_ids <- resampling$train_set(1)
+str(train_ids)
+test_ids <- resampling$test_set(1)
+str(test_ids)
+```
+
+
+  
+
+# mlr3: Construct a tuning instance
+
+A tuning instance is created using the `ti()` function. The tuning instance 
+describes the tuning problem.   
+  
+References: https://mlr3book.mlr-org.com/optimization.html 
+   
+   
+**Some notes:**    
+
+- `search_space` is set to NULL, so the paradox::ParamSet() function will be constructed from `TuneToken` of 
+`learner$param_set` --> just check the parameter set of a learner with `learner$param_set`. 
+There you will find in column `value `predefined labels attached to the parameter which will be tuned automatically   
+- `resampling`: cross-validation with 3 folds is used here
+- `measures`: `regr.rsq`` used here, alternative choices: 
+- `terminator`: `run_time` is set to time limit  
+
+```{r}
+# Overview measures
+View(as.data.table(mlr_measures))
+```
+   
+   
+**Construct the Tuner Instance:**  
+   
+`terminator`: https://mlr-org.com/terminators.html     
+
+`resampling`: https://mlr3.mlr-org.com/reference/Resampling.html    
+
+```{r}
+instance <- ti(
+  task = task,
+  learner = learner,
+  search_space = NULL, # paradox::ParamSet, constructed from TuneToken of learner$param_set
+  resampling = rsmp("cv", folds = 3),
+  measures = msr("regr.rsq"),
+  terminator = trm("run_time", secs = 300)
+)
+instance
+```
+
+   
+   
+# Tidymodels: Tuning Grid
+  
+Train many models using resampled data and see which models turn out best. `level = c(5,6)` specifies 5 resp. 6 levels for each 
+hyperparameter, so `grid_regular()` (package `dials`) returns a 5 x 6 = 30 different possible tuning combinations to try. 
+   
+```{r}
+tree_grid <- grid_regular(cost_complexity(),
+                          tree_depth(),
+                          levels = c(5,6))
+```
+
+Print the tree grid:
+  
+```{r}
+tree_grid
+```
+   
+   
+```{r}
+tree_grid %>% 
+  count(tree_depth)
+```
+
+
+# Tidymodels: Cross-Validation Folds
+   
+Tuning in tidymodels requires a resampled object created with the `rsample` package:
+   
+```{r}
+set.seed(234)
+cell_folds <- vfold_cv(loans, v = 3, repeats = 1) #  3 partitions, 1 repeat
+```
+
+
+# mlr3: Simple Grid Search
+
+Simple grid search as the optimization algorithm
+
+```{r}
+tuner <- tnr("grid_search", resolution = 5)
+tuner
+```
+
+
+# mlr3: Start Tuning
+  
+```{r}
+tuner$optimize(instance)
+```
+
+
+# Tidymodels: Specify and Start Tuning
+
+```{r}
+set.seed(345)
+
+tree_wf <- workflow() %>%
+  add_model(tune_spec) %>%
+  add_formula(int_rate ~ .)
+
+tree_res <- 
+  tree_wf %>% 
+  tune_grid(
+    resamples = cell_folds,
+    grid = tree_grid,
+    control = control_grid(verbose = TRUE)
+    )
+
+tree_res
+```
+
+
+
+# mlr3: Inspect Models
+
+```{r}
+mlr3Models <- as.data.table(instance$archive)[, .(cp, maxdepth, regr.rsq, batch_nr, resample_result)]
+mlr3Models
+mlr3Models[order(mlr3Models$regr.rsq, decreasing = T),][1:5,] # R2 ~ 0.92
+```
+
+
+
+```{r}
+mlr3viz::autoplot(instance, type = "surface")
+```
+
+
+
+# mlr3: Deploy Optimal Model
+   
+```{r}
+learner$param_set$values = instance$result_learner_param_vals
+learner$train(task)
+learner$model
+```
+
+
+# mlr3: Predict
+
+**R2 based on testdata: `loans_test`**
+
+```{r}
+measure <- msr("regr.rsq")
+prediction <- learner$predict_newdata(loans_test)
+prediction$score(measure)
+```
+
+
+
+
+# Tidymodels: Explore the results
+
+The function `collect_metrics()` gives us a tidy tibble with all the results: a row for each `.metric` and model
+   
+   
+```{r}
+tree_res %>% 
+  collect_metrics()
+```
+
+**Plot:** 
+  
+```{r}
+tree_res %>%
+  collect_metrics() %>%
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(cost_complexity, mean, color = tree_depth)) +
+  geom_line(linewidth = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0)
+```
+   
+   
+**Top 5 Candidate Models:**
+
+```{r}
+tree_res %>%
+  show_best("rsq") # R2 ~ 0.92
+```
+  
+  
+**Best Model:** 
+  
+```{r}
+best_tree <- tree_res %>%
+  select_best("rsq")
+
+best_tree
+```
+
+
+# Tidymodels: Finalizing the Model
+  
+Update (or "finalize") our workflow object `tree_wf` with the values from `select_best()`
+  
+```{r}
+final_wf <- 
+  tree_wf %>% 
+  finalize_workflow(best_tree)
+
+final_wf
+```
+
+
+# Tidymodels: Final Model with Test Data 
+  
+Final model is calculated based on test-data to prevent any overfitting
+
+**Please note:** The `final-final` model should be calculated on the whole data.frame. 
+
+   
+   
+
+# Sequential Tuning 
+
+**Classical tuning approaches**  
+- A full grid search is not an effective approach to find best models
+- A random forest can reduce search time, but is stupid in a sense that it does not learn from prior run models
+  
+**Strategy: Sequential tuning** 
+
+Ref.: https://www.tidymodels.org/learn/work/bayes-opt/
+   
+- **Exploration** means that the search will consider candidates in untested space.
+- **Exploitation** focuses in areas where the previous best results occurred.
+   
+Applying a *sequential tuning*, prior information gained from models will be used to determine next models to tune
+   
+**Set of parameters** has to be specified to control for during the tuning process:   
+   
+```{r}
+rpart_set <- extract_parameter_set_dials(tree_wf) # we set two hyperparameters to tune here:
+rpart_set
+```
+   
+Start the sequential tuning with five initial models - please be aware that this is time consuming.
+   
+```{r}
+SearchResult <- 
+  tree_wf %>%
+  tune_bayes(
+    resamples = cell_folds,
+    # parameter to control for
+    param_info = rpart_set,
+    # Generate five at semi-random to start
+    initial = 5,
+    iter = 50,
+    # How to measure performance
+    metrics = metric_set(rsq),
+    #grid = tree_grid,
+    control = control_bayes(no_improve = 30,verbose = TRUE)
+  )
+```
+-
+
+Check the results
+```{r}
+SearchResult
+```
+   
+Summarize the results over resamples:
+```{r}
+estimates <- 
+  collect_metrics(SearchResult) %>% 
+  arrange(.iter)
+print(estimates, n = 20)
+```
+   
+   
+Five best results:
+```{r}
+show_best(SearchResult, metric = "rsq")
+```
+
+Plot of the search iterations:
+```{r}
+autoplot(SearchResult, type = "performance")
+```
+
+There are many parameter combinations with roughly equivalent results
+  
+How did the parameters change over iterations?
+```{r}
+autoplot(SearchResult, type = "parameters") +
+  labs(x = "Iterations", y = NULL)
+```
+
+
+
+## mlr3: Tuners
+
+An overview over available tuners:
+```{r}
+as.data.table(mlr_tuners)
+    mlr_tuners$get("random_search")
+    tnr("random_search")
+```
+
+
+
